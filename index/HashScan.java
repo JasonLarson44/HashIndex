@@ -31,7 +31,16 @@ public class HashScan implements GlobalConst {
    */
   protected HashScan(HashIndex index, SearchKey key) {
 
-	  throw new UnsupportedOperationException("Not implemented");
+      HashDirPage dirPage = new HashDirPage();
+
+	  this.key = new SearchKey(key);
+	  int hash = key.getHash(index.DEPTH);
+	  Minibase.BufferManager.pinPage(index.headId, dirPage, GlobalConst.PIN_DISKIO);
+	  this.curPageId = dirPage.getPageId(hash);//find the bucket the key hashes to
+      Minibase.BufferManager.unpinPage(index.headId, GlobalConst.UNPIN_CLEAN);
+	  this.curPage = new HashBucketPage();
+	  this.curSlot = 0;
+	  Minibase.BufferManager.pinPage(this.curPageId, this.curPage, GlobalConst.PIN_DISKIO); //pin the first bucket page
 
   } // protected HashScan(HashIndex index, SearchKey key)
 
@@ -61,7 +70,35 @@ public class HashScan implements GlobalConst {
    */
   public RID getNext() {
 
-	  throw new UnsupportedOperationException("Not implemented");
+      RID rid;
+	  int slotno = curPage.nextEntry(this.key, this.curSlot);
+	  if(slotno != -1) //found entry
+      {
+        this.curSlot = slotno;
+        rid = new RID(curPageId, slotno);
+        return rid;
+      }
+      else //else check each overflow page
+      {
+          Minibase.BufferManager.unpinPage(curPageId, UNPIN_CLEAN);//unpin the page first
+          curPageId = curPage.getNextPage();
+          while(curPageId.pid >= 0)//while a valid page id
+          {
+              Minibase.BufferManager.pinPage(curPageId, curPage, GlobalConst.PIN_DISKIO);
+              this.curSlot = 0; //start at first slot
+              slotno = curPage.nextEntry(key, curSlot);
+              if(slotno != -1) //found entry
+              {
+                  this.curSlot = slotno;
+                  rid = new RID(curPageId, slotno);
+                  return rid;
+              }
+              Minibase.BufferManager.unpinPage(curPageId, GlobalConst.UNPIN_CLEAN);
+              curPageId = curPage.getNextPage();
+          }
+          throw new IllegalStateException("There are no more entries");
+
+      }
 
   } // public RID getNext()
 

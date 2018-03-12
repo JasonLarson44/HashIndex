@@ -36,7 +36,23 @@ public class HashIndex implements GlobalConst {
    */
   public HashIndex(String fileName) {
 
-	  throw new UnsupportedOperationException("Not implemented");
+      PageId pId = Minibase.DiskManager.get_file_entry(fileName);
+      this.fileName = fileName;
+      if(pId != null) //index was already in the file library
+      {
+          this.headId = pId; //Set this page id to be the page id of the located file
+      }
+      else //File was not in the file library
+      {
+          this.headId = Minibase.DiskManager.allocate_page();
+          HashDirPage IndexHead = new HashDirPage();
+          Minibase.BufferManager.pinPage(this.headId, IndexHead, GlobalConst.PIN_MEMCPY);
+          Minibase.BufferManager.unpinPage(this.headId, true);
+          if(this.fileName != null)//Not a temp file, so add it to the file library
+          {
+              Minibase.DiskManager.add_file_entry(this.fileName, this.headId);
+          }
+      }
 
   } // public HashIndex(String fileName)
 
@@ -46,7 +62,10 @@ public class HashIndex implements GlobalConst {
    */
   protected void finalize() throws Throwable {
 
-	  throw new UnsupportedOperationException("Not implemented");
+	  if(this.fileName == null) //temp
+      {
+          deleteFile();
+      }
 
   } // protected void finalize() throws Throwable
 
@@ -66,8 +85,30 @@ public class HashIndex implements GlobalConst {
    */
   public void insertEntry(SearchKey key, RID rid) {
 
-	  throw new UnsupportedOperationException("Not implemented");
+      HashDirPage dirPage = new HashDirPage();
+      HashBucketPage bucket = new HashBucketPage();
+      PageId bucketId;
+      DataEntry entry = new DataEntry(key, rid); //create a data entry to insert into bucket
+      boolean isDirty = false;
 
+	  int hashResult = key.getHash(DEPTH);
+	  Minibase.BufferManager.pinPage(this.headId, dirPage, GlobalConst.PIN_DISKIO); //pin the directory page
+      bucketId = dirPage.getPageId(hashResult);//find the page
+      if(bucketId.pid < 0)
+      {//invalid or unallocated bucket
+          bucketId = Minibase.DiskManager.allocate_page(); //allocate a new page
+          dirPage.setPageId(hashResult, bucketId);
+          Minibase.BufferManager.unpinPage(this.headId, UNPIN_DIRTY);
+          Minibase.BufferManager.pinPage(bucketId, bucket, GlobalConst.PIN_MEMCPY); //copy defaults in
+          isDirty = bucket.insertEntry(entry);
+          Minibase.BufferManager.unpinPage(bucketId, isDirty);
+      }
+      else { //if we found a valid bucket
+          Minibase.BufferManager.unpinPage(this.headId, UNPIN_CLEAN);
+          Minibase.BufferManager.pinPage(bucketId, bucket, GlobalConst.PIN_DISKIO);
+          isDirty = bucket.insertEntry(entry);
+          Minibase.BufferManager.unpinPage(bucketId, isDirty);
+      }
   } // public void insertEntry(SearchKey key, RID rid)
 
   /**
@@ -113,7 +154,35 @@ public class HashIndex implements GlobalConst {
    */
   public void printSummary() {
 
-	  throw new UnsupportedOperationException("Not implemented");
+      int numEntries;
+      PageId bucketId;
+      HashBucketPage bucket = new HashBucketPage();
+      HashDirPage dirPage = new HashDirPage();
+
+      Minibase.BufferManager.pinPage(this.headId, dirPage, GlobalConst.PIN_DISKIO);
+
+	  System.out.print("<pre>\n");
+	  System.out.print(this.fileName);
+	  System.out.print("\n-----------\n");
+
+	  for(int i = 0; i < 128; ++i) //number of buckets is fixed for this index
+      {
+          bucketId = dirPage.getPageId(i);
+          System.out.print(Integer.toBinaryString(i));
+          System.out.print(" : ");
+          if(bucketId.pid < 0) // bucket not allocated
+          {
+              System.out.print("null\n");
+          }
+          else
+          {
+              Minibase.BufferManager.pinPage(bucketId, bucket, GlobalConst.PIN_DISKIO);
+              System.out.print(bucket.countEntries());
+              System.out.print("\n");
+              Minibase.BufferManager.unpinPage(bucketId, GlobalConst.UNPIN_CLEAN);
+          }
+      }
+      Minibase.BufferManager.unpinPage(this.headId, UNPIN_CLEAN);
 
   } // public void printSummary()
 
