@@ -55,7 +55,7 @@ class HashBucketPage extends SortedPage {
           if(nextId.pid > 0)//try to add on next page, else there is no more pages, create a new one
           {
               Minibase.BufferManager.pinPage(nextId, nextPage, GlobalConst.PIN_DISKIO);
-              recursiveStatus = nextPage.insertEntrySuper(entry);
+              recursiveStatus = nextPage.insertEntry(entry);
               Minibase.BufferManager.unpinPage(nextId, recursiveStatus);
           }
           else //no more space, add a new overflow page

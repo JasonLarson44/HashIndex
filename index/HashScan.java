@@ -31,17 +31,28 @@ public class HashScan implements GlobalConst {
    */
   protected HashScan(HashIndex index, SearchKey key) {
 
+
       HashDirPage dirPage = new HashDirPage();
 
 	  this.key = new SearchKey(key);
 	  int hash = key.getHash(index.DEPTH);
-	  Minibase.BufferManager.pinPage(index.headId, dirPage, GlobalConst.PIN_DISKIO);
-	  this.curPageId = dirPage.getPageId(hash);//find the bucket the key hashes to
-      Minibase.BufferManager.unpinPage(index.headId, GlobalConst.UNPIN_CLEAN);
-	  this.curPage = new HashBucketPage();
-	  this.curSlot = 0;
-	  Minibase.BufferManager.pinPage(this.curPageId, this.curPage, GlobalConst.PIN_DISKIO); //pin the first bucket page
-
+	  if(index.headId.pid >= 0) {
+          Minibase.BufferManager.pinPage(index.headId, dirPage, GlobalConst.PIN_DISKIO);
+          this.curPageId = dirPage.getPageId(hash);//find the bucket the key hashes to
+          Minibase.BufferManager.unpinPage(index.headId, GlobalConst.UNPIN_CLEAN);
+          this.curPage = new HashBucketPage();
+          this.curSlot = -1;
+      }
+      if (this.curPageId.pid >= 0)
+      {
+          Minibase.BufferManager.pinPage(this.curPageId, this.curPage, GlobalConst.PIN_DISKIO); //pin the first bucket page
+      }
+      else
+      {
+          this.curPage = null;
+          this.curPageId = new PageId();
+          this.curSlot = -1;
+      }
   } // protected HashScan(HashIndex index, SearchKey key)
 
   /**
@@ -49,8 +60,10 @@ public class HashScan implements GlobalConst {
    * object; closes the scan if it's still open.
    */
   protected void finalize() throws Throwable {
-
-	  throw new UnsupportedOperationException("Not implemented");
+      if(this.curPageId.pid != -1)
+      {
+          close();
+      }
 
   } // protected void finalize() throws Throwable
 
@@ -58,8 +71,11 @@ public class HashScan implements GlobalConst {
    * Closes the index scan, releasing any pinned pages.
    */
   public void close() {
-
-	  throw new UnsupportedOperationException("Not implemented");
+      if(this.curPageId.pid >= 0)
+      {
+          Minibase.BufferManager.unpinPage(curPageId, GlobalConst.UNPIN_CLEAN);
+          this.curPageId.pid = -1;
+      }
 
   } // public void close()
 
@@ -71,11 +87,14 @@ public class HashScan implements GlobalConst {
   public RID getNext() {
 
       RID rid;
+      if(curPage == null) {
+          return null;
+      }
 	  int slotno = curPage.nextEntry(this.key, this.curSlot);
 	  if(slotno != -1) //found entry
       {
         this.curSlot = slotno;
-        rid = new RID(curPageId, slotno);
+        rid = new RID(curPage.getEntryAt(slotno).rid);
         return rid;
       }
       else //else check each overflow page
@@ -96,10 +115,10 @@ public class HashScan implements GlobalConst {
               Minibase.BufferManager.unpinPage(curPageId, GlobalConst.UNPIN_CLEAN);
               curPageId = curPage.getNextPage();
           }
-          throw new IllegalStateException("There are no more entries");
+          //throw new IllegalStateException("There are no more entries");
 
       }
-
+      return null;
   } // public RID getNext()
 
 } // public class HashScan implements GlobalConst

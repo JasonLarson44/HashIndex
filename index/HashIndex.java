@@ -1,10 +1,6 @@
 package index;
 
-import global.GlobalConst;
-import global.Minibase;
-import global.PageId;
-import global.RID;
-import global.SearchKey;
+import global.*;
 
 /**
  * <h3>Minibase Hash Index</h3>
@@ -73,8 +69,25 @@ public class HashIndex implements GlobalConst {
    * Deletes the index file from the database, freeing all of its pages.
    */
   public void deleteFile() {
+      PageId bucketId;
+      HashDirPage dirPage = new HashDirPage();
+      Minibase.BufferManager.pinPage(this.headId, dirPage, GlobalConst.PIN_DISKIO); //pin the directory page
 
-	  throw new UnsupportedOperationException("Not implemented");
+      for(int i = 0; i < 128; ++i)//for each bucket
+      {
+          bucketId = dirPage.getPageId(i); //get the page id at each slot
+          if(bucketId.pid >= 0){//if bucket is allocated
+              freeBucket(bucketId); //free all pages in the bucket
+          }
+      }
+      Minibase.BufferManager.unpinPage(this.headId, UNPIN_CLEAN);
+      if(this.fileName != null)//if not a temp file
+      {
+          //remove from the file library
+          Minibase.DiskManager.delete_file_entry(fileName);
+      }
+      Minibase.BufferManager.freePage(this.headId); //free the page
+      this.headId.pid = -1;
 
   } // public void deleteFile()
 
@@ -84,6 +97,11 @@ public class HashIndex implements GlobalConst {
    * @throws IllegalArgumentException if the entry is too large
    */
   public void insertEntry(SearchKey key, RID rid) {
+
+      if(key.getLength() > PAGE_SIZE)
+      {
+          throw new IllegalArgumentException("Invalid entry");
+      }
 
       HashDirPage dirPage = new HashDirPage();
       HashBucketPage bucket = new HashBucketPage();
@@ -118,7 +136,20 @@ public class HashIndex implements GlobalConst {
    */
   public void deleteEntry(SearchKey key, RID rid) {
 
-	  throw new UnsupportedOperationException("Not implemented");
+	  HashDirPage dirPage = new HashDirPage();
+	  PageId bucketId;
+	  HashBucketPage bucket = new HashBucketPage();
+	  boolean isDirty;
+	  DataEntry entry = new DataEntry(key, rid); //create the data entry to pass to bucket
+
+	  Minibase.BufferManager.pinPage(this.headId, dirPage, GlobalConst.PIN_DISKIO); //pin the directory page
+      int hash = key.getHash(DEPTH);
+      bucketId = dirPage.getPageId(hash); //find the right bucket
+      Minibase.BufferManager.unpinPage(this.headId, GlobalConst.UNPIN_CLEAN); //bucketpages dont get deleted so unpin is always clean
+      Minibase.BufferManager.pinPage(bucketId, bucket, GlobalConst.PIN_DISKIO);
+      isDirty = bucket.deleteEntry(entry);
+
+      Minibase.BufferManager.unpinPage(bucketId, isDirty); //if the entry was on the main bucket page it will be dirty
 
   } // public void deleteEntry(SearchKey key, RID rid)
 
@@ -185,5 +216,19 @@ public class HashIndex implements GlobalConst {
       Minibase.BufferManager.unpinPage(this.headId, UNPIN_CLEAN);
 
   } // public void printSummary()
+
+    //frees all the overflow pages for a bucket
+  private void freeBucket(PageId bucket)
+  {
+      PageId currentId = bucket;
+      HashBucketPage currentPage = new HashBucketPage();
+
+      while(currentId.pid >= 0){
+          Minibase.BufferManager.pinPage(currentId, currentPage, GlobalConst.PIN_DISKIO);
+          Minibase.BufferManager.unpinPage(currentId, GlobalConst.UNPIN_CLEAN);
+          Minibase.BufferManager.freePage(currentId);//free the page
+          currentId = currentPage.getNextPage();//get the next page id
+      }
+  }
 
 } // public class HashIndex implements GlobalConst
